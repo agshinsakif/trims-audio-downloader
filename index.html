@@ -2,27 +2,130 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TRIMS Audio Downloader</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
-    input[type="text"] { width: 100%; padding: 10px; box-sizing: border-box; margin-bottom: 10px; }
-    button { padding: 10px 20px; cursor: pointer; }
-    #log { margin-top: 20px; white-space: pre-wrap; background: #f4f4f4; padding: 10px; border-radius: 4px; font-family: monospace; }
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --accent-color: #38bdf8;
+      --accent-hover: #0284c7;
+      --text-color: #f8fafc;
+      --text-muted: #94a3b8;
+      --border-color: #334155;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      min-height: 100vh;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 680px;
+      background-color: var(--card-bg);
+      padding: 32px;
+      border-radius: 12px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      border: 1px solid var(--border-color);
+    }
+
+    h2 {
+      margin-top: 0;
+      margin-bottom: 24px;
+      text-align: center;
+      font-size: 1.75rem;
+      color: var(--accent-color);
+    }
+
+    .search-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 16px 20px;
+      font-size: 1.1rem;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      background-color: #0f172a;
+      color: var(--text-color);
+      box-sizing: border-box;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--accent-color);
+    }
+
+    button {
+      padding: 16px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      border-radius: 8px;
+      border: none;
+      background-color: var(--accent-color);
+      color: #0f172a;
+      cursor: pointer;
+      transition: background-color 0.2s, opacity 0.2s;
+    }
+
+    button:hover {
+      background-color: var(--accent-hover);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #log {
+      margin-top: 20px;
+      white-space: pre-wrap;
+      background-color: #090d16;
+      border: 1px solid var(--border-color);
+      padding: 16px;
+      border-radius: 8px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      max-height: 250px;
+      overflow-y: auto;
+    }
   </style>
 </head>
 <body>
-  <h2>TRIMS Audio Downloader</h2>
-  <input type="text" id="urlInput" placeholder="Enter URL (e.g., https://www.trims.edu.az/site/resource.php?id=1921)">
-  <button id="downloadBtn" onclick="process()">Download ZIP</button>
-  <div id="log"></div>
+  <div class="container">
+    <h2>TRIMS Audio Downloader</h2>
+    <div class="search-group">
+      <input type="text" id="urlInput" placeholder="Enter URL (e.g., https://www.trims.edu.az/site/resource.php?id=1455)">
+      <button id="downloadBtn" onclick="process()">Download ZIP Archive</button>
+    </div>
+    <div id="log">Ready to process request...</div>
+  </div>
 
   <script>
     const PROXY = "https://corsproxy.io/?";
-    const BASE_DOMAIN = "https://www.trims.edu.az/";
+    const BASE_DOMAIN = "https://www.trims.edu.az/site/";
 
     function log(msg) {
-      document.getElementById("log").textContent += msg + "\n";
+      const logDiv = document.getElementById("log");
+      logDiv.textContent += msg + "\n";
+      logDiv.scrollTop = logDiv.scrollHeight;
     }
 
     function sanitizeFilename(name) {
@@ -33,7 +136,7 @@
       const logDiv = document.getElementById("log");
       const btn = document.getElementById("downloadBtn");
       logDiv.textContent = "";
-      
+
       const rawUrl = document.getElementById("urlInput").value.trim();
       const idMatch = rawUrl.match(/[?&]id=(\d+)/);
       if (!idMatch) {
@@ -51,6 +154,8 @@
         const content = await resp.text();
 
         let matches = [];
+
+        // Strategy 1: JS object matches
         const pattern1 = /title\s*:\s*"([^"]+)"\s*,\s*mp3\s*:\s*"([^"]+)"/g;
         let match;
         while ((match = pattern1.exec(content)) !== null) {
@@ -64,8 +169,23 @@
           }
         }
 
+        // Strategy 2: HTML download links fallback
         if (matches.length === 0) {
-          log("No audio tracks found.");
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(content, "text/html");
+          const links = doc.querySelectorAll("ul.download-track-list a");
+          
+          links.forEach(a => {
+            const href = a.getAttribute("href");
+            const title = a.textContent.trim() || a.getAttribute("download") || "track";
+            if (href) {
+              matches.push({ title: title, mp3: href });
+            }
+          });
+        }
+
+        if (matches.length === 0) {
+          log("No audio tracks found on the page.");
           btn.disabled = false;
           return;
         }
@@ -87,11 +207,17 @@
 
         for (let i = 0; i < uniqueTracks.length; i++) {
           const track = uniqueTracks[i];
-          const cleanPath = track.mp3.replace(/^(\.\/|\.\.\/)+/, '');
-          const fileUrl = track.mp3.startsWith("http") ? track.mp3 : BASE_DOMAIN + cleanPath;
           
+          let fileUrl;
+          if (track.mp3.startsWith("http")) {
+            fileUrl = track.mp3;
+          } else {
+            const relativePath = track.mp3.replace(/^(\.\/|\.\.\/)+/, '');
+            fileUrl = new URL(relativePath, BASE_DOMAIN).href;
+          }
+
           let safeTitle = sanitizeFilename(track.title);
-          const filename = safeTitle.endsWith(".mp3") ? safeTitle : `${safeTitle}.mp3`;
+          const filename = safeTitle.toLowerCase().endsWith(".mp3") ? safeTitle : `${safeTitle}.mp3`;
 
           try {
             const audioResp = await fetch(PROXY + encodeURIComponent(fileUrl));
@@ -107,7 +233,7 @@
         log("\nGenerating ZIP file...");
         const zipBlob = await zip.generateAsync({ type: "blob" });
         const downloadUrl = URL.createObjectURL(zipBlob);
-        
+
         const a = document.createElement("a");
         a.href = downloadUrl;
         a.download = `${id}.zip`;
