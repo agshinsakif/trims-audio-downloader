@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TRIMS Audio Downloader</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+    input[type="text"] { width: 100%; padding: 10px; box-sizing: border-box; margin-bottom: 10px; }
+    button { padding: 10px 20px; cursor: pointer; }
+    #log { margin-top: 20px; white-space: pre-wrap; background: #f4f4f4; padding: 10px; border-radius: 4px; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <h2>TRIMS Audio Downloader</h2>
+  <input type="text" id="urlInput" placeholder="Enter URL (e.g., https://www.trims.edu.az/site/resource.php?id=1921)">
+  <button id="downloadBtn" onclick="process()">Download ZIP</button>
+  <div id="log"></div>
+
+  <script>
+    const PROXY = "https://corsproxy.io/?";
+    const BASE_DOMAIN = "https://www.trims.edu.az/";
+
+    function log(msg) {
+      document.getElementById("log").textContent += msg + "\n";
+    }
+
+    function sanitizeFilename(name) {
+      return name.replace(/[\\/:*?"<>|]/g, '_').trim().replace(/\.+$/, '');
+    }
+
+    async function process() {
+      const logDiv = document.getElementById("log");
+      const btn = document.getElementById("downloadBtn");
+      logDiv.textContent = "";
+      
+      const rawUrl = document.getElementById("urlInput").value.trim();
+      const idMatch = rawUrl.match(/[?&]id=(\d+)/);
+      if (!idMatch) {
+        log("Error: Could not extract ID from the provided URL.");
+        return;
+      }
+
+      const id = idMatch[1];
+      const audioUrl = `https://www.trims.edu.az/site/audio.php?id=${id}`;
+      btn.disabled = true;
+
+      try {
+        log(`Fetching metadata from: ${audioUrl}...`);
+        const resp = await fetch(PROXY + encodeURIComponent(audioUrl));
+        const content = await resp.text();
+
+        let matches = [];
+        const pattern1 = /title\s*:\s*"([^"]+)"\s*,\s*mp3\s*:\s*"([^"]+)"/g;
+        let match;
+        while ((match = pattern1.exec(content)) !== null) {
+          matches.push({ title: match[1], mp3: match[2] });
+        }
+
+        if (matches.length === 0) {
+          const pattern2 = /mp3\s*:\s*"([^"]+)"\s*,\s*title\s*:\s*"([^"]+)"/g;
+          while ((match = pattern2.exec(content)) !== null) {
+            matches.push({ title: match[2], mp3: match[1] });
+          }
+        }
+
+        if (matches.length === 0) {
+          log("No audio tracks found.");
+          btn.disabled = false;
+          return;
+        }
+
+        const seen = new Set();
+        const uniqueTracks = [];
+        for (const track of matches) {
+          const cleanMp3 = track.mp3.replace(/\\\//g, '/');
+          if (!seen.has(cleanMp3)) {
+            seen.add(cleanMp3);
+            uniqueTracks.push({ title: track.title.trim(), mp3: cleanMp3 });
+          }
+        }
+
+        log(`Found ${uniqueTracks.length} unique audio tracks.`);
+        log("Downloading tracks and creating ZIP archive...\n");
+
+        const zip = new JSZip();
+
+        for (let i = 0; i < uniqueTracks.length; i++) {
+          const track = uniqueTracks[i];
+          const cleanPath = track.mp3.replace(/^(\.\/|\.\.\/)+/, '');
+          const fileUrl = track.mp3.startsWith("http") ? track.mp3 : BASE_DOMAIN + cleanPath;
+          
+          let safeTitle = sanitizeFilename(track.title);
+          const filename = safeTitle.endsWith(".mp3") ? safeTitle : `${safeTitle}.mp3`;
+
+          try {
+            const audioResp = await fetch(PROXY + encodeURIComponent(fileUrl));
+            if (!audioResp.ok) throw new Error(`HTTP ${audioResp.status}`);
+            const blob = await audioResp.blob();
+            zip.file(filename, blob);
+            log(`[${i + 1}/${uniqueTracks.length}] Added: ${filename}`);
+          } catch (e) {
+            log(`[${i + 1}/${uniqueTracks.length}] Failed ${fileUrl}: ${e.message}`);
+          }
+        }
+
+        log("\nGenerating ZIP file...");
+        const zipBlob = await zip.generateAsync({ type: "blob" });
+        const downloadUrl = URL.createObjectURL(zipBlob);
+        
+        const a = document.createElement("a");
+        a.href = downloadUrl;
+        a.download = `${id}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(downloadUrl);
+
+        log(`\nDone! Downloaded ${id}.zip`);
+      } catch (err) {
+        log(`Error: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
