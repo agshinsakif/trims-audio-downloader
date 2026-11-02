@@ -155,21 +155,22 @@
 
         let matches = [];
 
-        // Strategy 1: JS object matches
-        const pattern1 = /title\s*:\s*"([^"]+)"\s*,\s*mp3\s*:\s*"([^"]+)"/g;
+        // Strategy 1: Flexible multiline JS object pattern
+        const pattern1 = /title\s*:\s*"([^"]+)"[\s\S]*?mp3\s*:\s*"([^"]+)"/g;
         let match;
         while ((match = pattern1.exec(content)) !== null) {
           matches.push({ title: match[1], mp3: match[2] });
         }
 
+        // Strategy 2: Fallback for mp3 defined before title multiline
         if (matches.length === 0) {
-          const pattern2 = /mp3\s*:\s*"([^"]+)"\s*,\s*title\s*:\s*"([^"]+)"/g;
+          const pattern2 = /mp3\s*:\s*"([^"]+)"[\s\S]*?title\s*:\s*"([^"]+)"/g;
           while ((match = pattern2.exec(content)) !== null) {
             matches.push({ title: match[2], mp3: match[1] });
           }
         }
 
-        // Strategy 2: HTML download links fallback
+        // Strategy 3: HTML download list links parsing
         if (matches.length === 0) {
           const parser = new DOMParser();
           const doc = parser.parseFromString(content, "text/html");
