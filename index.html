@@ -221,7 +221,7 @@
           const filename = safeTitle.toLowerCase().endsWith(".mp3") ? safeTitle : `${safeTitle}.mp3`;
 
           try {
-            const audioResp = await fetch(PROXY + encodeURIComponent(fileUrl));
+            const blob = await (await fetch(PROXY_ALT + encodeURIComponent(fileUrl))).blob();
             if (!audioResp.ok) throw new Error(`HTTP ${audioResp.status}`);
             const blob = await audioResp.blob();
             zip.file(filename, blob);
