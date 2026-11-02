@@ -115,14 +115,10 @@
       <input type="text" id="urlInput" placeholder="Enter URL (e.g., https://www.trims.edu.az/site/resource.php?id=1455)">
       <button id="downloadBtn" onclick="process()">Download ZIP Archive</button>
     </div>
-    <div id="log">Ready to process request...</div>
+    <div id="log">Ready to process request... (Ensure CORS extension is active)</div>
   </div>
 
   <script>
-    const PROXIES = [
-      "https://api.allorigins.win/raw?url=",
-      "https://api.codetabs.com/v1/proxy?quest="
-    ];
     const BASE_DOMAIN = "https://www.trims.edu.az/site/";
 
     function log(msg) {
@@ -133,20 +129,6 @@
 
     function sanitizeFilename(name) {
       return name.replace(/[\\/:*?"<>|]/g, '_').trim().replace(/\.+$/, '');
-    }
-
-    async function fetchWithProxy(url, responseType = "text") {
-      let lastError = null;
-      for (const proxy of PROXIES) {
-        try {
-          const resp = await fetch(proxy + encodeURIComponent(url));
-          if (!resp.ok) continue;
-          return responseType === "blob" ? await resp.blob() : await resp.text();
-        } catch (e) {
-          lastError = e;
-        }
-      }
-      throw new Error(`Failed to fetch resources through active proxies: ${lastError ? lastError.message : 'HTTP Error'}`);
     }
 
     async function process() {
@@ -167,18 +149,18 @@
 
       try {
         log(`Fetching metadata from: ${audioUrl}...`);
-        const content = await fetchWithProxy(audioUrl, "text");
+        const resp = await fetch(audioUrl);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const content = await resp.text();
 
         let matches = [];
 
-        // JS Object pattern matching title and mp3 multiline
         const pattern1 = /title\s*:\s*"([^"]+)"[\s\S]*?mp3\s*:\s*"([^"]+)"/g;
         let match;
         while ((match = pattern1.exec(content)) !== null) {
           matches.push({ title: match[1], mp3: match[2] });
         }
 
-        // Alternative pattern matching mp3 before title multiline
         if (matches.length === 0) {
           const pattern2 = /mp3\s*:\s*"([^"]+)"[\s\S]*?title\s*:\s*"([^"]+)"/g;
           while ((match = pattern2.exec(content)) !== null) {
@@ -186,18 +168,14 @@
           }
         }
 
-        // DOM HTML parsing fallback
         if (matches.length === 0) {
           const parser = new DOMParser();
           const doc = parser.parseFromString(content, "text/html");
           const links = doc.querySelectorAll("ul.download-track-list a");
-          
           links.forEach(a => {
             const href = a.getAttribute("href");
             const title = a.textContent.trim() || a.getAttribute("download") || "track";
-            if (href) {
-              matches.push({ title: title, mp3: href });
-            }
+            if (href) matches.push({ title: title, mp3: href });
           });
         }
 
@@ -218,26 +196,21 @@
         }
 
         log(`Found ${uniqueTracks.length} unique audio tracks.`);
-        log("Downloading tracks and creating ZIP archive...\n");
+        log("Downloading tracks directly and creating ZIP archive...\n");
 
         const zip = new JSZip();
 
         for (let i = 0; i < uniqueTracks.length; i++) {
           const track = uniqueTracks[i];
-          
-          let fileUrl;
-          if (track.mp3.startsWith("http")) {
-            fileUrl = track.mp3;
-          } else {
-            const relativePath = track.mp3.replace(/^(\.\/|\.\.\/)+/, '');
-            fileUrl = new URL(relativePath, BASE_DOMAIN).href;
-          }
+          let fileUrl = track.mp3.startsWith("http") ? track.mp3 : new URL(track.mp3.replace(/^(\.\/|\.\.\/)+/, ''), BASE_DOMAIN).href;
 
           let safeTitle = sanitizeFilename(track.title);
           const filename = safeTitle.toLowerCase().endsWith(".mp3") ? safeTitle : `${safeTitle}.mp3`;
 
           try {
-            const blob = await fetchWithProxy(fileUrl, "blob");
+            const audioResp = await fetch(fileUrl);
+            if (!audioResp.ok) throw new Error(`HTTP ${audioResp.status}`);
+            const blob = await audioResp.blob();
             zip.file(filename, blob);
             log(`[${i + 1}/${uniqueTracks.length}] Added: ${filename}`);
           } catch (e) {
@@ -259,7 +232,7 @@
 
         log(`\nDone! Downloaded ${id}.zip`);
       } catch (err) {
-        log(`Error: ${err.message}`);
+        log(`Error: ${err.message}\n(If you see a Load Failed error, make sure your browser CORS extension is turned ON.)`);
       } finally {
         btn.disabled = false;
       }
